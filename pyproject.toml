@@ -1,0 +1,61 @@
+[project]
+name = "job-hunting-hub"
+version = "0.1.0"
+description = "Job hunting hub — FastMCP aggregator for HH + LinkedIn + Telegram with Neon contacts DB"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Evgeny Gurin" }]
+dependencies = [
+    "fastmcp[apps]>=3.2,<4",
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.6,<3",
+    "httpx>=0.27,<0.29",
+    "asyncpg>=0.29",
+    "opentelemetry-distro",
+    "opentelemetry-exporter-otlp",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.49"]
+
+[project.scripts]
+job-hub = "hub.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "inline-snapshot",
+    "dirty-equals",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hub"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = "playwright.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["live: real hh/linkedin/telegram calls (deselected by default)"]
+addopts = "-m 'not live' --inline-snapshot=fix"
