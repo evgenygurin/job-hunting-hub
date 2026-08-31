@@ -1,0 +1,52 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "recruiter_id": {
+      "title": "Recruiter Id",
+      "type": "string"
+    },
+    "tg_handle": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tg Handle"
+    },
+    "phone": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Phone"
+    },
+    "source": {
+      "enum": [
+        "hh",
+        "li",
+        "tg"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "recruiter_id",
+    "source"
+  ],
+  "title": "Contact",
+  "type": "object"
+}
