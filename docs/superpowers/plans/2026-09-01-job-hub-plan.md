@@ -2,21 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Построить lean `job-hunting-hub` — FastMCP хаб, агрегирующий `hh-mcp-pro` + `linkedin-mcp-search` + `telegram-mcp` через `mount(create_proxy, namespace)` + долгоживущая `Neon Lakebase` БД `companies/recruiters/contacts` с `plain RAG` и `HITL Approval`.
+> **Fresh session context:** This plan is self-contained. Before Task 1, read `docs/research/T-job-hub-fastmcp.md` (7/7, `context7+exa+gitnexus`) and `docs/superpowers/specs/2026-09-01-job-hub-design.md` (5 sections). All prior discussion is encoded there. `AGENTS.md` has workflow invariants. No external chat history needed.
 
-**Architecture:** `FastMCP Hub` с `lifespan | lifespan` композицией, `ProxyProvider` (lazy, cache_ttl=300, session isolation), `CustomProvider` для Neon contacts, `BM25SearchTransform` + `Visibility` (per-session), `Background Tasks` + `Progress` + `Approval/Choice` для `enrich_company` цепочки. Строгий layering `MCP → Application → Domain → Infra` per `mcp-server-architecture`.
+**Goal:** Построить lean `job-hunting-hub` — FastMCP хаб, агрегирующий `hh-mcp-pro` + `linkedin-mcp-server` + `telegram-mcp` via `mount(create_proxy, namespace)` + долгоживущая `Neon Lakebase` БД `companies/recruiters/contacts→interactions` с `plain RAG` (`pgvector` + `lakebase_text` hybrid RRF) и `HITL Approval` перед `tg_send_message`. Поток `HH vacancy → company → LinkedIn HR (40+ фильтров) → Telegram resolve → contacts_upsert → RAG`.
 
-**Tech Stack:** Python 3.12, FastMCP 3.4.7 (`fastmcp>=3.2,<4`, `pydantic>=2.12` for v4), `asyncpg`, `httpx`, `@neondatabase/serverless`, `pgvector`, `ruff line 100`, `mypy --strict`, `pytest + respx + fastmcp.Client`, `Neon Lakebase` (`aws-us-east-2`), `uv`
+**Architecture:** `FastMCP Hub` с `lifespan | lifespan` композицией (`lifespan.md`), `ProxyProvider` (lazy, `cache_ttl=300`, session isolation per-request, `provider_error_strategy="warn"`, era mirroring), `CustomProvider` для Neon contacts (`Provider._list_tools → Tool.from_function`), `BM25SearchTransform(max_results=5, always_visible)` + `Visibility` (`disable(tags)`, per-session `ctx.enable_components`), `Background Tasks(task=True)` + `Progress(set_total/increment)` + `Approval/Choice/FormInput` (`fastmcp[apps]` + `prefab-ui`). Строгий layering `MCP Thin Adapter → Application UseCase → Domain Pydantic → Infra Ports` per `mcp-server-architecture/SKILL.md` (`fastmcp-engineering` maximally where valuable, YAGNI elsewhere).
+
+**Tech Stack:** Python 3.12, FastMCP 3.4.7 (`fastmcp>=3.2,<4`, exact `3.4.7` in lock, `pydantic>=2.12,<3` for v4), `asyncpg>=0.29`, `httpx>=0.27,<0.29`, `@neondatabase/serverless`, `pgvector`, `ruff line 100, select E,F,I,UP,B,SIM,ASYNC`, `mypy --strict, python_version 3.12`, `pytest>=8 + pytest-asyncio + respx + inline-snapshot + fastmcp.Client`, `Neon Lakebase` (`aws-us-east-2` for Functions/Storage/AI Gateway, else `scale-to-zero`), `uv`, `opentelemetry-distro`
 
 ## Global Constraints
 
 - Python `3.12`, `uv` (`uv sync`, `uv run`), `requires-python = ">=3.12"`
-- `fastmcp>=3.2,<4` (exact `3.4.7` in lock), `pydantic>=2.12,<3` (v4 floor), `pydantic-settings>=2.6,<3`, `httpx>=0.27,<0.29`
-- `ruff line-length 100`, selects `E,F,I,UP,B,SIM,ASYNC`; `mypy --strict`, all public funcs typed
-- `Result[T]` contract `Ok[T]|Err` discriminated `ok: Literal` (`models.py:6` pattern)
-- `DATABASE_URL` from `neon deploy` (Neon Lakebase, `aws-us-east-2`), `chmod 600` for `token.json`/`session`
-- Rate limits: `hh 5rps`, `tg 30-80 DMs/день` (SpamBot), `Retry-After` on 429
-- Tests `pytest -m "not live"` default, `live` marked separately
+- `fastmcp>=3.2,<4` (exact `3.4.7` in lock), `pydantic>=2.12,<3` (v4 floor), `pydantic-settings>=2.6,<3`, `httpx>=0.27,<0.29`, `asyncpg>=0.29`
+- `ruff line-length 100`, selects `E,F,I,UP,B,SIM,ASYNC`; `mypy --strict, python_version 3.12`, all public funcs typed, `src` `["src","tests"]`
+- `Result[T]` contract `Ok[T]|Err` discriminated `ok: Literal` (`hh-mcp-pro/src/hh_mcp_pro/models.py:6` pattern), `TypeAdapter` JSON Schema fixtures `tests/fixtures/*.json`
+- `DATABASE_URL` from `neon deploy` (Neon Lakebase, `aws-us-east-2` for beta, `chmod 600` for `token.json`/`TG_SESSION`), `scale-to-zero` compatible `lakebase_vector`
+- Rate limits: `hh 5rps + backoff 429 Retry-After`, `tg 30-80 DMs/день` (SpamBot: datacenter IP + young account + high velocity + report rate = ban, residential proxy only, no rotation every 30m), LinkedIn `connection note 120-180 chars (hard 300) / DM 50-90 слов / InMail <90 слов / 1 follow-up 5-7д` (Medium 2026, Nox 2026)
+- RAG: `plain RAG` first (`vector cosine + BM25` → `RRF 1/(60+rank)`), `GraphRAG` deferred (10-100× cost `$50→$5000` per 10k docs, Gartner 40% fail, only if `3+ hops` needed)
+- Tests `pytest -m "not live" -v` default, `live` marked `@pytest.mark.live`, `addopts -m 'not live' --inline-snapshot=fix`, trio `pytest + ruff check + mypy src --strict` green before next Task
+- `fastmcp-engineering` maximally where valuable: `docs-first` (no `src/` without `docs/research/*.md`), `TDD` RED→GREEN, `GitNexus impact` before edit, `verification` before commit. Skip `GraphRAG/15 OAuth` where YAGNI.
+- Group: `job-hub` (7 repos: `hh-mcp-pro`, `fastmcp-engineering`, `job-hunting`, `telegram-mcp`, `linkedin-mcp-server`, `mcp-server-neon`, `job-hunting-hub`) — `gitnexus group status job-hub` OK, `gitnexus analyze` if staleness >0
 
 ---
 
